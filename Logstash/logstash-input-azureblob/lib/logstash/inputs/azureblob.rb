@@ -3,7 +3,7 @@ require "logstash/inputs/base"
 require "logstash/namespace"
 
 # Azure Storage SDK for Ruby
-require "azure/storage/blob"
+require "azure/storage"
 require 'json' # for registry content
 require "securerandom" # for generating uuid.
 
@@ -120,12 +120,12 @@ class LogStash::Inputs::LogstashInputAzureblob < LogStash::Inputs::Base
   # The default, `100` is good for default heap size of 1G.
   config :blob_list_page_size, :validate => :number, :default => 100
 
+  config :azure_blob_file_path_field, :validate => :boolean, :default => false
+
+  config :azure_blob_file_path_field_name, :validate => :string, :default => "azureblobfilepath"
+
   # The default is 4 MB
   config :file_chunk_size_bytes, :validate => :number, :default => 4 * 1024 * 1024
-  
-  config :azure_blob_file_path_field, :validate => :boolean, :default => false
-  
-  config :azure_blob_file_path_field_name, :validate => :string, :default => "azureblobfilepath"
 
   # Constant of max integer
   MAX = 2**([42].pack('i').size * 16 - 2) - 1
@@ -142,9 +142,11 @@ class LogStash::Inputs::LogstashInputAzureblob < LogStash::Inputs::Base
     @reader = SecureRandom.uuid
 
     # Setup a specific instance of an Azure::Storage::Client
-    @azure_blob = Azure::Storage::Blob::BlobService.create(:storage_account_name => @storage_account_name, :storage_access_key => @storage_access_key, :storage_blob_host => "https://#{@storage_account_name}.blob.#{@endpoint}", :user_agent_prefix => user_agent)
+    client = Azure::Storage::Client.create(:storage_account_name => @storage_account_name, :storage_access_key => @storage_access_key, :storage_blob_host => "https://#{@storage_account_name}.blob.#{@endpoint}", :user_agent_prefix => user_agent)
+    # Get an azure storage blob service object from a specific instance of an Azure::Storage::Client
+    @azure_blob = client.blob_client
     # Add retry filter to the service object
-    @azure_blob.with_filter(Azure::Storage::Common::Core::Filter::ExponentialRetryPolicyFilter.new)
+    @azure_blob.with_filter(Azure::Storage::Core::Filter::ExponentialRetryPolicyFilter.new)
   end # def register
 
   def run(queue)
@@ -238,8 +240,8 @@ class LogStash::Inputs::LogstashInputAzureblob < LogStash::Inputs::Base
     end
 
     @codec.decode(full_content) do |event|
-      if @azure_blob_file_path_field
-        event.set(@azure_blob_file_path_field_name, blob_name)
+      if azure_blob_file_path_field
+        event.set(azure_blob_file_path_field_name, blob_name)
       end
       decorate(event)
       queue << event
@@ -522,3 +524,4 @@ class BlobReader < LinearReader
     return content
   end
 end #class BlobReader
+
